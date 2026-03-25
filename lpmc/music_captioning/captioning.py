@@ -55,7 +55,7 @@ def captioning(args):
     model = BartCaptionModel(max_length = config.max_length)
     print(args)
     print(save_dir)
-    model, save_epoch = load_pretrained(args, save_dir, model, model_type=args.model_type, mdp=config.multiprocessing_distributed)
+    model, save_epoch = load_pretrained(args, save_dir, model, model_types=args.model_type, mdp=config.multiprocessing_distributed)
     torch.cuda.set_device(args.gpu)
     model = model.cuda(args.gpu)
     model.eval()
