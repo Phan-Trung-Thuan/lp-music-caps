@@ -3,6 +3,7 @@ import os
 import json
 import numpy as np
 import torch
+from tqdm import tqdm
 
 from lpmc.music_captioning.model.bart import BartCaptionModel
 from lpmc.utils.eval_utils import load_pretrained
@@ -104,10 +105,10 @@ def main():
 
     print(f"Found {len(audio_files)} files")
 
-    for file in audio_files:
+    for file in tqdm(audio_files):
         path = os.path.join(args.audio_dir, file)
 
-        print(f"\nProcessing: {file}")
+        # print(f"\nProcessing: {file}")
 
         try:
             captions = caption_file(model, path, args)
