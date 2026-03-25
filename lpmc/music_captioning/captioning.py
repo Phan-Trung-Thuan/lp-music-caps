@@ -53,6 +53,8 @@ def captioning(args):
     save_dir = f"exp/{args.framework}/{args.caption_type}/"
     config = OmegaConf.load(os.path.join(save_dir, "hparams.yaml"))
     model = BartCaptionModel(max_length = config.max_length)
+    print(args)
+    print(save_dir)
     model, save_epoch = load_pretrained(args, save_dir, model, mdp=config.multiprocessing_distributed)
     torch.cuda.set_device(args.gpu)
     model = model.cuda(args.gpu)
