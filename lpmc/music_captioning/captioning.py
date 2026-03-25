@@ -1,83 +1,127 @@
 import argparse
 import os
+import json
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
-import torch.distributed as dist
-import torch.optim
-import torch.multiprocessing as mp
-import torch.utils.data
-import torch.utils.data.distributed
 
 from lpmc.music_captioning.model.bart import BartCaptionModel
 from lpmc.utils.eval_utils import load_pretrained
 from lpmc.utils.audio_utils import load_audio, STR_CH_FIRST
 from omegaconf import OmegaConf
 
-parser = argparse.ArgumentParser(description='PyTorch MSD Training')
-parser.add_argument('--gpu', default=1, type=int,
-                    help='GPU id to use.')
+
+parser = argparse.ArgumentParser(description='Music Captioning Batch')
+parser.add_argument('--gpu', default=0, type=int)
 parser.add_argument("--framework", default="transfer", type=str)
 parser.add_argument("--caption_type", default="lp_music_caps", type=str)
-parser.add_argument("--max_length", default=128, type=int)
 parser.add_argument("--num_beams", default=5, type=int)
-parser.add_argument("--model_type", default="transfer", type=str)
-parser.add_argument("--audio_path", default="../../dataset/samples/orchestra.wav", type=str)
+parser.add_argument("--model_type", default="last", type=str)
+
+# 🔥 NEW
+parser.add_argument("--audio_dir", type=str, required=True)
+parser.add_argument("--output_json", default="results.json", type=str)
+
 
 def get_audio(audio_path, duration=10, target_sr=16000):
     n_samples = int(duration * target_sr)
     audio, sr = load_audio(
-        path= audio_path,
-        ch_format= STR_CH_FIRST,
-        sample_rate= target_sr,
-        downmix_to_mono= True,
+        path=audio_path,
+        ch_format=STR_CH_FIRST,
+        sample_rate=target_sr,
+        downmix_to_mono=True,
     )
+
     if len(audio.shape) == 2:
-        audio = audio.mean(0, False)  # to mono
-    input_size = int(n_samples)
-    if audio.shape[-1] < input_size:  # pad sequence
-        pad = np.zeros(input_size)
+        audio = audio.mean(0, False)
+
+    if audio.shape[-1] < n_samples:
+        pad = np.zeros(n_samples)
         pad[: audio.shape[-1]] = audio
         audio = pad
+
     ceil = int(audio.shape[-1] // n_samples)
-    audio = torch.from_numpy(np.stack(np.split(audio[:ceil * n_samples], ceil)).astype('float32'))
+    audio = torch.from_numpy(
+        np.stack(np.split(audio[:ceil * n_samples], ceil)).astype('float32')
+    )
+
     return audio
-    
-def main():
-    args = parser.parse_args()
-    captioning(args)
- 
-def captioning(args):
+
+
+def load_model(args):
     save_dir = f"exp/{args.framework}/{args.caption_type}/"
     config = OmegaConf.load(os.path.join(save_dir, "hparams.yaml"))
-    model = BartCaptionModel(max_length = config.max_length)
-    print(args)
-    print(save_dir)
-    model, save_epoch = load_pretrained(args, save_dir, model, model_types=args.model_type, mdp=config.multiprocessing_distributed)
+
+    model = BartCaptionModel(max_length=config.max_length)
+
+    model, _ = load_pretrained(
+        args,
+        save_dir,
+        model,
+        model_types=args.model_type,
+        mdp=config.multiprocessing_distributed
+    )
+
     torch.cuda.set_device(args.gpu)
     model = model.cuda(args.gpu)
     model.eval()
-    
-    audio_tensor = get_audio(audio_path = args.audio_path)
-    if args.gpu is not None:
-        audio_tensor = audio_tensor.cuda(args.gpu, non_blocking=True)
+
+    return model
+
+
+def caption_file(model, audio_path, args):
+    audio_tensor = get_audio(audio_path)
+
+    audio_tensor = audio_tensor.cuda(args.gpu, non_blocking=True)
 
     with torch.no_grad():
         output = model.generate(
             samples=audio_tensor,
             num_beams=args.num_beams,
         )
-    inference = {}
-    number_of_chunks = range(audio_tensor.shape[0])
-    for chunk, text in zip(number_of_chunks, output):
+
+    results = []
+    for chunk, text in enumerate(output):
         time = f"{chunk * 10}:00-{(chunk + 1) * 10}:00"
-        item = {"text":text,"time":time}
-        inference[chunk] = item
-        print(item)
+        results.append({
+            "time": time,
+            "text": text
+        })
 
-if __name__ == '__main__':
+    return results
+
+
+def main():
+    args = parser.parse_args()
+
+    model = load_model(args)
+
+    all_results = {}
+
+    audio_files = [
+        f for f in os.listdir(args.audio_dir)
+        if f.endswith(".wav")
+    ]
+
+    print(f"Found {len(audio_files)} files")
+
+    for file in audio_files:
+        path = os.path.join(args.audio_dir, file)
+
+        print(f"\nProcessing: {file}")
+
+        try:
+            captions = caption_file(model, path, args)
+            all_results[file] = captions
+
+        except Exception as e:
+            print(f"Error with {file}: {e}")
+
+    # 🔥 save JSON
+    with open(args.output_json, "w", encoding="utf-8") as f:
+        json.dump(all_results, f, indent=4, ensure_ascii=False)
+
+    print(f"\nSaved to {args.output_json}")
+
+
+if __name__ == "__main__":
     main()
-
-    
