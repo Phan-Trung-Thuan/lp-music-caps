@@ -23,7 +23,7 @@ parser.add_argument("--framework", default="transfer", type=str)
 parser.add_argument("--caption_type", default="lp_music_caps", type=str)
 parser.add_argument("--max_length", default=128, type=int)
 parser.add_argument("--num_beams", default=5, type=int)
-parser.add_argument("--model_type", default="last", type=str)
+parser.add_argument("--model_type", default="transfer", type=str)
 parser.add_argument("--audio_path", default="../../dataset/samples/orchestra.wav", type=str)
 
 def get_audio(audio_path, duration=10, target_sr=16000):
